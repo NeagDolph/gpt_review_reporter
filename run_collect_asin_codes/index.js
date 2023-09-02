@@ -1,4 +1,5 @@
 const express = require('express');
+const axios = require('axios');
 const { SecretManagerServiceClient } = require('@google-cloud/secret-manager');
 const { Firestore } = require('@google-cloud/firestore');
 
@@ -6,15 +7,35 @@ const app = express();
 const secretClient = new SecretManagerServiceClient();
 const firestore = new Firestore();
 
+async function getProductsAxesso(apiKey) {
+	const options = {
+		method: 'GET',
+		url: 'https://axesso-axesso-amazon-data-service-v1.p.rapidapi.com/amz/amazon-seller-products',
+		params: {
+			domainCode: 'com',
+			sellerId: 'ADZH7GRDFE99Y',
+			page: '1'
+		},
+		headers: {
+			'X-RapidAPI-Key': apiKey,
+			'X-RapidAPI-Host': 'axesso-axesso-amazon-data-service-v1.p.rapidapi.com'
+		}
+	};
+
+	const response = await axios.request(options);
+
+	const asinCodes = response.data
+}
+
 app.get('/', async (req, res) => {
 	// Fetch the API key from Secret Manager
 	const [version] = await secretClient.accessSecretVersion({
-		name: 'projects/YOUR_PROJECT_ID/secrets/amazon-api-key/versions/latest'
+		name: 'projects/shoplc-amazon-reviews/secrets/axesso-api-key/versions/latest'
 	});
 	const apiKey = version.payload.data.toString();
 
-	// Fetch data from Amazon API (Simulated here)
-	const asinNumbers = ['123456', '789012']; // Replace with your API call logic
+	// Fetch data from Amazon API
+	const asinNumbers = await getProductsAxesso(apiKey);
 
 	// Write data to Firestore
 	const batch = firestore.batch();
