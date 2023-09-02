@@ -4,7 +4,8 @@
   "description": "",
   "main": "run_collect_asin_codes/index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+      "asin": "npx functions-framework --target=collect_asin_codes [--signature-type=http]"
   },
   "keywords": [],
   "author": "",
@@ -16,5 +17,8 @@
     "express": "^4.18.2",
     "loglevel": "^1.8.1",
     "openai": "^4.4.0"
+  },
+  "devDependencies": {
+    "@google-cloud/functions-framework": "^3.3.0"
   }
 }
