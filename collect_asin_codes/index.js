@@ -1,12 +1,24 @@
 const axios = require('axios');
-const {SecretManagerServiceClient} = require('@google-cloud/secret-manager');
 const {Firestore} = require('@google-cloud/firestore');
-const functions = require('@google-cloud/functions-framework');
+const functions = require("@google-cloud/functions-framework");
+const {SecretManagerServiceClient} = require("@google-cloud/secret-manager");
 
-const secretClient = new SecretManagerServiceClient();
 const firestore = new Firestore();
+const secretClient = new SecretManagerServiceClient();
+
 
 const sellerID = 'ADZH7GRDFE99Y';
+
+// Function to fetch Axesso API Key from Google Cloud Secret Manager
+async function getAxessoAPIKey() {
+	console.log('Fetching Axesso API Key...');
+	// Fetch the API key from Secret Manager
+	const [version] = await secretClient.accessSecretVersion({
+		name: 'projects/shoplc-amazon-reviews/secrets/axesso-api-key/versions/latest'
+	});
+	console.log('Successfully fetched Axesso API Key');
+	return version.payload.data.toString();
+}
 
 
 /**
@@ -49,7 +61,7 @@ async function updateRunnerInfo(param) {
 	const docRef = firestore.collection('info').doc('asinCodes');
 
 	// Update the checkedPages field in Firestore
-	await docRef.set(param, { merge: true });
+	await docRef.set(param, {merge: true});
 }
 
 /**
@@ -96,7 +108,7 @@ async function getProductDataAxesso(apiKey, overwrite = false, pageNumber) {
 	return response.data
 }
 
-async function processProductData(productData, overwrite = false, priority=1) {
+async function processProductData(productData, overwrite = false, priority = 1) {
 	if (productData.numberOfProducts <= 0) {
 		await markInvalidPageNumber(productData.currentPage)
 		return;
@@ -112,15 +124,23 @@ async function processProductData(productData, overwrite = false, priority=1) {
 		const asin = product.asin;
 		const productDocRef = firestore.collection('products').doc(asin);
 
+		const productInfo = {
+			priority,
+			processed: false,
+			lastChecked: 0,
+			dateCreated: Date.now(),
+			countReview: null
+		}
+
 		if (overwrite) {
 			// Add set operation to batch
-			batch.set(productDocRef, {...product, priority, processed: false});
+			batch.set(productDocRef, {...productInfo, ...product});
 		} else {
 			const productDoc = await productDocRef.get();
 
 			if (!productDoc.exists) {
 				// Add set operation to batch if the document doesn't exist
-				batch.set(productDocRef, {...product, priority, processed: false});
+				batch.set(productDocRef, { ...product, ...productInfo});
 			}
 		}
 	});
@@ -133,26 +153,30 @@ async function processProductData(productData, overwrite = false, priority=1) {
 
 }
 
-async function getAxessoAPIKey() {
-	// Fetch the API key from Secret Manager
-	const [version] = await secretClient.accessSecretVersion({
-		name: 'projects/shoplc-amazon-reviews/secrets/axesso-api-key/versions/latest'
-	});
-	return version.payload.data.toString()
-}
 
-functions.http('collect_asin_codes', async (req, res) => {
+async function collectAsinCodes(parameters) {
 	// Whether to perform the action in overwrite mode
-	const overwrite = req.body.packageoverwrite || false;
-	const pageNumber = req.body.pageNumber;
-	const priority = req.body.priority;
+	const overwrite = parameters.packageoverwrite || false;
+	const pageNumber = parameters.pageNumber;
+	const priority = parameters.priority;
 
 	const apiKey = await getAxessoAPIKey();
 
 	// Fetch data from Amazon API
 	const productData = await getProductDataAxesso(apiKey, overwrite, pageNumber);
 
-	await processProductData(productData, overwrite, priority);
+	await processProductData(productData, overwrite, priority)
 
-	res.status(200).send('Data fetched and written to Firestore.');
-});
+	const returnMessage = `${productData.searchProductDetails.length} successfully collected.`;
+
+	return {message: returnMessage};
+}
+
+module.exports.collectasincodes = async (req, res) => {
+	const response = await collectAsinCodes(req.body);
+
+	res.status(200).send(response.message);
+}
+
+functions.http("collectasincodes", module.exports.collectasincodes);
+

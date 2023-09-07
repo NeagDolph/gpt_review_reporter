@@ -1,6 +1,7 @@
 const fs = require('fs');
 const OpenAI = require("openai");
 const log = require('loglevel');
+const functions = require("@google-cloud/functions-framework");
 
 // Initialize log level
 log.setLevel('info');
@@ -113,6 +114,15 @@ async function processReviews() {
 		processReviewBatch(i, intermediaryFolder, finalFolder);
 	}
 }
+
+
+module.exports.processreviews = async (req, res) => {
+	await processReviews()
+
+	res.status(200).send(response.message);
+}
+
+functions.http("processreviews", module.exports.processreviews);
 
 processReviews().then(r => log.info("Processing complete."));
 

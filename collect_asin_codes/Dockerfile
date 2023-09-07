@@ -1,5 +1,5 @@
 # Use Node.js image
-FROM node:14
+FROM node:18
 
 # Create app directory
 WORKDIR /usr/src/app
@@ -9,7 +9,7 @@ WORKDIR /usr/src/app
 COPY ../package*.json ./
 
 # If there are service-specific dependencies, you can install them like so:
-# RUN npm install
+RUN npm install
 
 # Copy just the necessary code files for this specific service
 COPY ./ ./
