@@ -1,32 +1,42 @@
 const fs = require('fs');
 const OpenAI = require("openai");
-const log = require('loglevel');
+const {Firestore} = require('@google-cloud/firestore');
 const functions = require("@google-cloud/functions-framework");
+const {SecretManagerServiceClient} = require("@google-cloud/secret-manager");
 
-// Initialize log level
-log.setLevel('info');
+const firestore = new Firestore();
+const secretClient = new SecretManagerServiceClient();
 
-// Initialize OpenAI configuration
-log.info('Initializing OpenAI configuration...');
-const openai = new OpenAI({
-	apiKey: process.env.OPENAI_API_KEY,
-});
-log.info('OpenAI configuration initialized.');
+// Function to fetch Axesso API Key from Google Cloud Secret Manager
+async function getOpenAIAPIKey() {
+	console.log('Fetching OpenAI API Key...');
+
+	// Fetch the API key from Secret Manager
+	const [version] = await secretClient.accessSecretVersion({
+		name: 'projects/shoplc-amazon-reviews/secrets/openai-api-key/versions/latest'
+	});
+
+	console.log('Successfully fetched OpenAI API Key');
+	return version.payload.data.toString();
+}
 
 // Number of reviews to process in a batch
 const batchSize = 3;
 
+// Global variable to set on initiation
+let openai;
+
 // Load reviews from a JSON file
-log.info('Loading reviews from input/reviews.json...');
+console.log('Loading reviews from input/reviews.json...');
 const reviews = JSON.parse(fs.readFileSync('input/reviews.json', 'utf-8'));
-log.info(`Loaded ${reviews.length} reviews.`);
+console.log(`Loaded ${reviews.length} reviews.`);
 
 // Load prompt templates
-log.info('Loading prompt templates...');
+console.log('Loading prompt templates...');
 const firstPromptTemplate = fs.readFileSync('input/generate_violations.md', 'utf-8');
 const secondPromptTemplate = fs.readFileSync('input/generate_output.md', 'utf-8');
 const amazonGuidelinesTemplate = fs.readFileSync('input/amazon_review_tos.md', 'utf-8');
-log.info('Prompt templates loaded.');
+console.log('Prompt templates loaded.');
 
 function createRoundOnePrompt(reviews) {
 	const messages = []
@@ -38,10 +48,12 @@ function createRoundOnePrompt(reviews) {
 	messages.push({"role": "assistant", "content": reply})
 
 	const reviewContent = reviews.map(review => {
-		return `Rating: ${review["Star Rating"]}
-Title: ${review["Subject"]}
-Review: ${review["Review"]}`
-	}).join("\n\n")
+		return `Rating: ${review.rating}
+Title: ${review.title}
+Text: ${review.text}`;
+
+	}).join("\n\n");
+
 
 	// Prepare the first prompt
 	const firstPrompt = firstPromptTemplate.replace('${reviews}', reviewContent);
@@ -53,76 +65,192 @@ Review: ${review["Review"]}`
 
 // Function to make API calls
 async function callGpt4(messages, temperature, top_p) {
-	log.info('Making GPT-4 API call...');
+	console.log('Making GPT-4 API call...');
 	try {
 		const completion = await openai.chat.completions.create({
 			model: 'gpt-4',
 			messages
 		});
-		log.info('GPT-4 API call successful.');
+		console.log('GPT-4 API call successful.');
 		return completion.choices[0].message.content;
 	} catch (error) {
-		log.error(`Failed to call GPT-4 API: ${error}`);
+		console.error(`Failed to call GPT-4 API: ${error}`);
 		return null;
 	}
 }
 
-function processReviewBatch(i, intermediaryFolder, finalFolder) {
-	const reviewBatch = reviews.slice(i, i + batchSize);
-	log.info(`Processing reviews ${i + 1} to ${i + batchSize}...`);
+async function processReviewBatch(reviews) {
 
-	const name = (i + 1) + "to" + (i + batchSize);
+	const firstPromptMessages = createRoundOnePrompt(reviews);
 
-	const firstPromptMessages = createRoundOnePrompt(reviewBatch);
+	const firstOutput = await callGpt4(firstPromptMessages);
 
-	// Make the first GPT-4 API call
-	callGpt4(firstPromptMessages).then(firstOutput => {
-		// Save the intermediary output
-		fs.writeFileSync(`${intermediaryFolder}/firstOutput_${name}.txt`, firstOutput);
-		log.info(`Saved intermediary output to ${intermediaryFolder}/firstOutput_${name}.txt`);
+	// Prepare the second prompt
+	const secondPrompt = secondPromptTemplate.replace('${review_output}', firstOutput);
 
-		// Prepare the second prompt
-		const secondPrompt = secondPromptTemplate.replace('${review_output}', firstOutput);
+	const secondPromptMessages = [{role: "user", content: secondPrompt}]
 
-		const secondPromptMessages = [{role: "user", content: secondPrompt}]
+	const secondOutput = await callGpt4(secondPromptMessages);
 
-		// Make the second GPT-4 API call
-		callGpt4(secondPromptMessages).then(secondOutput => {
-			// Save the final output
-			fs.writeFileSync(`${finalFolder}/secondOutput_${name}.txt`, secondOutput);
-			log.info(`Saved final output to ${finalFolder}/secondOutput_${name}.txt`);
-		})
+	const splitSecondOutput = secondOutput.split("===")
+
+	console.log("Review length", reviews.length, splitSecondOutput.length, "REPORT", splitSecondOutput)
+
+	const combinedReports = reviews.map((review, i) => {
+		return {...review, reportData: splitSecondOutput[i]}
 	})
+
+	return combinedReports;
 }
+
+async function retrieveReviews() {
+	const reviewsRef = firestore.collection('reviews');
+
+	// Retrieve up to 3 reviews that have not been processed, ordered by 'priority' in descending order
+	const reviewItemsSnapshot = await reviewsRef
+		.where('processed', '==', false)
+		.orderBy('priority', 'desc')
+		.limit(3)
+		.get();
+
+	if (reviewItemsSnapshot.empty) {
+		console.log("No available reviews to process");
+		return [];
+	}
+
+	// Convert the Firestore document snapshots to regular JavaScript objects
+	const reviews = reviewItemsSnapshot.docs.map(doc => doc.data());
+
+	return reviews;
+}
+
+
+async function saveReports(reports) {
+	// Initialize Firestore batch
+	const reportsBatch = firestore.batch();
+
+	const reportsRef = firestore
+		.collection("reports");
+
+	const reviewsRef = firestore
+		.collection("reviews");
+
+	// Prepare batch operations
+	const reportsPromises = reports.map(async (report) => {
+		const reviewId = report.reviewId;
+		const reportRef = reportsRef.doc(reviewId);
+		const reviewDocRef = reviewsRef.doc(reviewId);
+
+		reportsBatch.update(reviewDocRef, {processed: true, priority: 1}, {merge: true})
+		console.log("REPORT: ", report)
+		reportsBatch.set(reportRef, {text: report.reportData, productId: report.productId, sent: false, reviewId})
+	});
+
+	// Wait for all promises to complete
+	await Promise.all(reportsPromises);
+
+	// Commit the batch to Firestore
+	await reportsBatch.commit();
+
+	console.log('Successfully saved reviews');
+}
+
 
 async function processReviews() {
-	const intermediaryFolder = 'output/intermediary-' + batchSize;
-	const finalFolder = 'output/final-' + batchSize;
+	const apiKey = await getOpenAIAPIKey();
 
-	// Create folders if they do not exist
-	log.info('Creating output directories if they do not exist...');
-	if (!fs.existsSync(intermediaryFolder)) {
-		fs.mkdirSync(intermediaryFolder, {recursive: true});
-	}
-	if (!fs.existsSync(finalFolder)) {
-		fs.mkdirSync(finalFolder, {recursive: true});
-	}
-	log.info('Output directories created or already exist.');
+	// Initialize OpenAI configuration
+	console.log('Initializing OpenAI configuration...');
+	openai = new OpenAI({
+		apiKey: apiKey,
+	});
+	console.log('OpenAI configuration initialized.');
 
-	for (let i = 0; i < reviews.length; i += batchSize) {
-		if (i !== 6) continue;
-		processReviewBatch(i, intermediaryFolder, finalFolder);
+	const reviews = await retrieveReviews();
+
+	if (reviews.length === 0) {
+		return {message: "No reviews found", code: 200};
 	}
+
+	const reports = await processReviewBatch(reviews);
+
+	await saveReports(reports);
+
+	return {message: `Successfully saved ${reports.length} reviews`, code: 200}
 }
+
+// async function moveAllReviews() {
+// 	const productsRef = firestore.collection('products');
+//
+// 	// Get all products
+// 	const productItemsSnapshot = await productsRef.get();
+// 	const productItems = productItemsSnapshot.docs;
+//
+// 	// Use Promise.all to wait for all asynchronous operations to complete
+// 	await Promise.all(productItems.map(async (product) => {
+// 		const reviewBatch = firestore.batch();
+// 		const reviewsSnapshot = await product.ref.collection("reviews").get();
+// 		const reviews = reviewsSnapshot.docs;
+//
+// 		if (reviews.length === 0) {
+// 			return;
+// 		}
+//
+// 		reviews.forEach((review) => {
+// 			const reviewData = review.data();
+// 			const reviewDoc = firestore.collection("reviews").doc(reviewData.reviewId);
+//
+// 			// Clone and modify the review object
+// 			const newReviewData = { ...reviewData, productId: product.id };
+//
+// 			reviewBatch.set(reviewDoc, newReviewData);
+// 		});
+//
+// 		// Commit the batch
+// 		await reviewBatch.commit();
+// 	}));
+//
+// 	return { code: 200, message: "All reviews moved" };
+// }
+
+// async function addPriorityToAllReviews() {
+// 	const reviewsRef = firestore.collection('reviews');
+//
+// 	const reviewItemsSnapshot = await reviewsRef.get();
+// 	const reviewItems = reviewItemsSnapshot.docs;
+//
+// 	const batchSize = 500; // Firestore batch write limit
+// 	let currentBatch = firestore.batch();
+// 	let operationCount = 0;
+//
+// 	for (const review of reviewItems) {
+// 		currentBatch.update(review.ref, { priority: 1 });
+// 		operationCount++;
+//
+// 		if (operationCount >= batchSize) {
+// 			await currentBatch.commit();
+// 			currentBatch = firestore.batch();
+// 			operationCount = 0;
+// 		}
+// 	}
+//
+// 	// Commit any remaining operations
+// 	if (operationCount > 0) {
+// 		await currentBatch.commit();
+// 	}
+//
+// 	return { message: "Added priority to all reviews", code: 200 };
+// }
+
+
 
 
 module.exports.processreviews = async (req, res) => {
-	await processReviews()
+	const response = await processReviews();
 
-	res.status(200).send(response.message);
+	console.log("Reviews processing complete")
+	res.status(response.code).send(response.message);
 }
 
 functions.http("processreviews", module.exports.processreviews);
-
-processReviews().then(r => log.info("Processing complete."));
 

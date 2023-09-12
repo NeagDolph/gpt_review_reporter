@@ -1,0 +1,23 @@
+{
+  "name": "cloud_run",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "start": "functions-framework --target=processreviews",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "deploy": " gcloud functions deploy processreviews --gen2 --region=us-south1 --runtime=nodejs18 --source=./ --entry-point=processreviews --trigger-http"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@google-cloud/firestore": "^6.7.0",
+    "@google-cloud/secret-manager": "^5.0.0",
+    "axios": "^1.5.0",
+    "express": "^4.18.2",
+    "loglevel": "^1.8.1",
+    "openai": "^4.4.0",
+    "@google-cloud/functions-framework": "^3.3.0"
+  }
+}

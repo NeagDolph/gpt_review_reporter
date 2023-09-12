@@ -1,0 +1,28 @@
+name: Build and Push Docker image to Artifact Registry
+
+on:
+  push:
+    branches:
+      - main  # Change this to your default branch if it's not 'main'
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Setup Google Cloud SDK
+        uses: google-github-actions/setup-gcloud@master
+        with:
+          service_account_key: ${{ secrets.GCP_SA_KEY }}
+          project_id: shoplc-amazon-reviews
+
+      - name: Configure Docker
+        run: |
+          gcloud --quiet auth configure-docker us-central1-docker.pkg.dev
+
+      - name: Build and Push Docker Image
+        run: |
+          docker build -t us-central1-docker.pkg.dev/shoplc-amazon-reviews/shoplc-amazon-reviews/shoplc-amazon-reviews:latest .
+          docker push us-central1-docker.pkg.dev/shoplc-amazon-reviews/shoplc-amazon-reviews/shoplc-amazon-reviews:latest

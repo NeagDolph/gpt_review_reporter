@@ -142,26 +142,26 @@ async function updateItem(productData) {
 // Function to save reviews to Firestore
 async function saveReviews(asin, reviews) {
 	console.log(`Saving reviews for ASIN: ${asin}...`);
+
 	// Initialize Firestore batch
-	const batch = firestore.batch();
-	const reviewsRef = firestore
-		.collection('products')
-		.doc(asin)
+	const reviewsBatch = firestore.batch();
+
+	const allReviewsRef = firestore
 		.collection("reviews");
 
 	// Prepare batch operations
-	const productPromises = reviews.map(async (review) => {
+	const reviewPromises = reviews.map(async (review) => {
 		const id = review.reviewId;
-		const reviewDocRef = reviewsRef.doc(id);  // Changed from reviewsRef.doc(asin) to use reviewId as the document ID
+		const allReviewDocRef = allReviewsRef.doc(id);
 
-		batch.set(reviewDocRef, {...review, processed: false});
+		reviewsBatch.set(allReviewDocRef, {...review, processed: false, productId: asin, priority: 1})
 	});
 
 	// Wait for all promises to complete
-	await Promise.all(productPromises);
+	await Promise.all(reviewPromises);
 
 	// Commit the batch to Firestore
-	await batch.commit();
+	await reviewsBatch.commit();
 
 	console.log('Successfully saved reviews');
 }
