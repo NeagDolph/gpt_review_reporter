@@ -1,0 +1,4 @@
+# app.yaml
+
+runtime: nodejs16  # specify the runtime
+instance_class: F2 # optional: choose a different instance class based on your needs

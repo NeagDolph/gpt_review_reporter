@@ -31,3 +31,7 @@ jobs:
         run: |
           docker build -t us-central1-docker.pkg.dev/shoplc-amazon-reviews/shoplc-amazon-reviews/shoplc-amazon-reviews:latest .
           docker push us-central1-docker.pkg.dev/shoplc-amazon-reviews/shoplc-amazon-reviews/shoplc-amazon-reviews:latest
+
+      - name: Trigger Cloud Build
+          run: |
+            gcloud builds submit --config cloudbuild.yaml
