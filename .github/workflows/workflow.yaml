@@ -33,5 +33,6 @@ jobs:
           docker push us-central1-docker.pkg.dev/shoplc-amazon-reviews/shoplc-amazon-reviews/shoplc-amazon-reviews:latest
 
       - name: Trigger Cloud Build
+        working-directory: ./review-report-svelte-app
         run: |
           gcloud builds submit --config cloudbuild.yaml
