@@ -34,5 +34,4 @@ jobs:
 
       - name: Trigger Cloud Build
         run: |
-          ls ./
-          gcloud builds submit --config ./review-report-svelte-app/cloudbuild.yaml
+          gcloud builds submit --config ./cloudbuild.yml
