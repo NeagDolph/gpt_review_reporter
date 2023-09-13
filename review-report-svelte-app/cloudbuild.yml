@@ -4,19 +4,19 @@ steps:
     args:
       - 'build'
       - '-t'
-      - 'us-central1-docker.pkg.dev/shoplc-amazon-reviews/shoplc-amazon-reviews/shoplc-amazon-reviews:latest'
+      - 'gcr.io/$PROJECT_ID/shoplc-amazon-reviews:latest'
       - '.'
-  # Push the Docker image to Artifact Registry
+  # Push the Docker image to GCR
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'push'
-      - 'us-central1-docker.pkg.dev/shoplc-amazon-reviews/shoplc-amazon-reviews/shoplc-amazon-reviews:latest'
+      - 'gcr.io/$PROJECT_ID/shoplc-amazon-reviews:latest'
   # Deploy the Docker image to Cloud Run
   - name: 'gcr.io/cloud-builders/gcloud'
     args:
       - 'run'
       - 'deploy'
       - 'shoplc-amazon-reviews'
-      - '--image=us-central1-docker.pkg.dev/shoplc-amazon-reviews/shoplc-amazon-reviews/shoplc-amazon-reviews:latest'
+      - '--image=gcr.io/$PROJECT_ID/shoplc-amazon-reviews:latest'
       - '--platform=managed'
       - '--region=us-central1'
