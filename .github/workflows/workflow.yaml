@@ -12,10 +12,15 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v2
 
+      - name: Authenticate Google Cloud
+        id: 'auth'
+        uses: 'google-github-actions/auth'
+        with:
+          credentials_json: '${{ secrets.GCP_SA_KEY }}'
+
       - name: Setup Google Cloud SDK
         uses: google-github-actions/setup-gcloud@main
         with:
-          service_account_key: ${{ secrets.GCP_SA_KEY }}
           project_id: shoplc-amazon-reviews
 
       - name: Configure Docker
