@@ -2,11 +2,11 @@ FROM node:16-alpine AS build
 
 WORKDIR /app
 
-COPY package*.json ./
+COPY review-report-svelte-app/package*.json ./
 
 RUN npm ci
 
-COPY . .
+COPY review-report-svelte-app/. .
 
 RUN npm run build
 
